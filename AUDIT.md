@@ -219,6 +219,12 @@ Response headers were not provided. CSP, HSTS, `X-Frame-Options` and cookie flag
 | H7 | og tags | `og:url`, title and description are fixed for the whole SPA. Every route (item pages, toy codes) shares one preview, and crawlers that do not run JS see an empty `<div id="root">`. Per-route meta needs prerendering, SSR or a prerender service. |
 | H8 | `<noscript>` | Only a plain message. No crawlable fallback content. |
 
+Second capture of the shell (with a trailing inline script): the extra block is Cloudflare's bot-detection snippet (`/cdn-cgi/challenge-platform/scripts/jsd/main.js`, `__CF$cv$params`), injected at the edge. It is normal, not a finding. It does show:
+- The site is behind Cloudflare, so security headers and CSP can be set there (Transform Rules) as well as at the origin.
+- A CSP must allow this injected inline script and `/cdn-cgi/` on the same origin. A nonce does not work on edge-injected code, so use a hash, or `script-src 'self'` plus the iframe-created script, which is same-origin. Test in report-only mode first.
+- The snippet reads `window.parent.location` from a hidden same-origin iframe. Do not add `X-Frame-Options`/`frame-ancestors` rules that would break that iframe (it is same-origin, so `frame-ancestors 'self'` is safe, `'none'` is also fine for external framing).
+- Because the origin is behind Cloudflare, check the origin IP is not directly reachable (firewall to Cloudflare ranges), or WAF and rate limits can be bypassed.
+
 Suggested CSP starting point (tune after a report-only run):
 ```
 Content-Security-Policy-Report-Only:

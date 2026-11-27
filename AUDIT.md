@@ -200,6 +200,36 @@ currency({ fetchPolicy: 'no-cache' }).then(…).catch(() => {});
 - Guard: `n.paymentIntent?.status`, `s.next_action?.type`.
 - Use one shared constants map for method names, not string literals.
 
+## Addendum: `index.html` shell (static review of the served HTML)
+
+The shell references `/static/js/main.339e40a9.js`, the bundle reviewed above, so S1-S13 and B1-B14 apply to it.
+Response headers were not provided. CSP, HSTS, `X-Frame-Options` and cookie flags need a check on the live response (`curl -sI https://ro.place/`).
+
+| # | Severity | Finding |
+|---|----------|---------|
+| H1 | Medium | No Content-Security-Policy in the HTML (no `<meta http-equiv>`). Combined with S5 and S8, any injected script or `javascript:` link runs with full page privileges. The page needs a header-based CSP. The inline gtag script needs a hash or nonce. |
+| H2 | Medium | Third-party scripts run with full page access and no Subresource Integrity: Trustpilot `//widget.trustpilot.com/bootstrap/v5/tp.widget.bootstrap.min.js` and `googletagmanager.com/gtag/js`. Trustpilot's file is unversioned, so a compromise on their side runs on a page that handles logins, Roblox cookies and payments. Own-origin `main.*.js` also has no `integrity`. Consider loading Trustpilot only on marketing pages, not on checkout or seller-account routes. |
+| H3 | Low | The Trustpilot URL is protocol-relative (`//`). Use `https://` explicitly. `type="text/javascript"` is redundant. |
+| H4 | Low-Med (privacy/legal) | `gtag("config", ...)` for Analytics and Google Ads (`AW-11295142200`) runs unconditionally on load, before any consent step. That is an ePrivacy/GDPR problem for EU and UK visitors. Use Consent Mode v2 (`gtag('consent','default',{ad_storage:'denied',analytics_storage:'denied',ad_user_data:'denied',ad_personalization:'denied'})`) before the config calls. Combined with S9, the conversion value is also URL-controlled. |
+| H5 | Info | No `<link rel="canonical">`. Hashed assets without a Cache-Control `immutable` header are not visible from here. |
+
+| # | Where | Bug |
+|---|-------|-----|
+| H6 | `og:image` | The value is relative (`/favicon.png`). Facebook, X, Discord and Slack require an absolute URL and usually show no preview. Use `https://ro.place/og-image.png` (1200x630) and add `og:image:width/height` and `twitter:card`. |
+| H7 | og tags | `og:url`, title and description are fixed for the whole SPA. Every route (item pages, toy codes) shares one preview, and crawlers that do not run JS see an empty `<div id="root">`. Per-route meta needs prerendering, SSR or a prerender service. |
+| H8 | `<noscript>` | Only a plain message. No crawlable fallback content. |
+
+Suggested CSP starting point (tune after a report-only run):
+```
+Content-Security-Policy-Report-Only:
+  default-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none';
+  script-src 'self' 'sha256-<gtag inline hash>' https://www.googletagmanager.com https://widget.trustpilot.com <recaptcha/stripe/intercom hosts>;
+  connect-src 'self' https://api.ro.place <sentry, analytics hosts>;
+  frame-src https://js.stripe.com https://hooks.stripe.com <whop/coinbase/recaptcha>;
+  img-src 'self' data: https:;
+```
+Also set `Strict-Transport-Security`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, and `Permissions-Policy`.
+
 ## Suggested order of work
 1. S3 and S4 on the server (CSRF, GET-queries, authz). These are the most likely to cause real loss.
 2. S5, S6, S7, S8 (about an hour of client work plus a CSP).
